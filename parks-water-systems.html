@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Parks and Water Systems Map</title>
+<meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+
+<script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.min.js"></script>
+<link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.css" type="text/css">
+
+<style>
+    body { margin: 0; padding: 0; }
+    #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+    .mapboxgl-popup { z-index: 10; max-width: 250px; font-family: sans-serif; }
+    .popup-section { margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+    .popup-section:last-child { border: none; }
+    .popup-label { font-size: 10px; font-weight: bold; color: #888; text-transform: uppercase; display: block; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+    mapboxgl.accessToken = 'pk.eyJ1IjoiYWxkaG91c3AiLCJhIjoiY2pueHpmeGNxMGhxNjNxbXhpMzViNGUyZSJ9.FQiJVij9bPb65b2jTDtBGA';
+ 
+    const caBounds = [
+        [-124.48, 32.53],
+        [-114.13, 42.01]
+    ];
+
+    const map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/light-v11',
+        center: [-119.4179, 36.7783], 
+        zoom: 3
+    });
+
+    const popup = new mapboxgl.Popup({
+        closeButton: false,
+        closeOnClick: false
+    });
+
+    map.on('load', () => {
+        map.fitBounds(caBounds, { padding: 40, duration: 1000 });
+
+        map.addSource('parks-src', { type: 'vector', url: 'mapbox://aldhousp.camh0lhy' });
+        map.addSource('systems-src', { type: 'vector', url: 'mapbox://aldhousp.1hsylnf3' });
+
+        map.addLayer({
+            'id': 'parks-fill',
+            'type': 'fill',
+            'source': 'parks-src',
+            'source-layer': 'parks',
+            'paint': { 'fill-color': '#ff0000', 'fill-opacity': 0.20 }
+        });
+
+        map.addLayer({
+            'id': 'systems-fill',
+            'type': 'fill',
+            'source': 'systems-src',
+            'source-layer': 'systems', 
+            'paint': { 'fill-color': '#0000ff', 'fill-opacity': 0.20 }
+        });
+
+        map.on('mousemove', (e) => {
+            const features = map.queryRenderedFeatures(e.point, {
+                layers: ['parks-fill', 'systems-fill']
+            });
+
+            if (features.length > 0) {
+                map.getCanvas().style.cursor = 'pointer';
+                let content = '';
+                const parkNames = new Set();
+                const systemIDs = new Set();
+
+                features.forEach(f => {
+                    if (f.layer.id === 'parks-fill' && f.properties.unitname) {
+                        parkNames.add(f.properties.unitname);
+                    }
+                    if (f.layer.id === 'systems-fill' && f.properties.water_system_number) {
+                        systemIDs.add(f.properties.water_system_number);
+                    }
+                });
+
+                if (parkNames.size > 0) {
+                    content += `<div class="popup-section"><span class="popup-label">Park</span><strong>${Array.from(parkNames).join(', ')}</strong></div>`;
+                }
+                if (systemIDs.size > 0) {
+                    content += `<div class="popup-section"><span class="popup-label">Water System ID</span><strong>${Array.from(systemIDs).join(', ')}</strong></div>`;
+                }
+
+                if (content) {
+                    popup.setLngLat(e.lngLat).setHTML(content).addTo(map);
+                } else {
+                    popup.remove();
+                }
+            } else {
+                map.getCanvas().style.cursor = '';
+                popup.remove();
+            }
+        });
+
+        const geocoder = new MapboxGeocoder({
+            accessToken: mapboxgl.accessToken,
+            mapboxgl: mapboxgl,
+            placeholder: 'Search Park or System ID',
+            zoom: 13,
+            localGeocoderOnly: true,
+            localGeocoder: (query) => {
+                const pFeatures = map.querySourceFeatures('parks-src', { sourceLayer: 'parks' });
+                const sFeatures = map.querySourceFeatures('systems-src', { sourceLayer: 'systems' });
+                const matches = [];
+
+                [...pFeatures, ...sFeatures].forEach(feature => {
+                    const label = feature.properties.unitname || feature.properties.water_system_number;
+                    if (label && label.toString().toLowerCase().includes(query.toLowerCase())) {
+                        feature['place_name'] = `📍 ${label}`;
+                        
+                        // Robust coordinate extraction for search zoom
+                        let coords = feature.geometry.coordinates;
+                        if (feature.geometry.type === 'MultiPolygon') {
+                            coords = coords[0][0][0];
+                        } else if (feature.geometry.type === 'Polygon') {
+                            coords = coords[0][0];
+                        }
+                        
+                        feature['center'] = coords;
+                        matches.push(feature);
+                    }
+                });
+                return matches;
+            }
+        });
+
+        map.addControl(geocoder, 'top-left');
+    });
+</script>
+</body>
+</html>
